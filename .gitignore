@@ -1,0 +1,9 @@
+.DS_Store
+.build/
+build/
+*.xcodeproj
+xcuserdata/
+
+# Model weights are downloaded locally, never committed (see model/README.md)
+model/*
+!model/README.md
