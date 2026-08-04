@@ -91,14 +91,16 @@ final class Brain: @unchecked Sendable {
 
     // MARK: - Prompt assembly (manual ChatML; empty think block = fast non-thinking mode)
 
-    /// Manual ChatML. The empty think block selects fast non-thinking mode, and we
-    /// prefill "[" so the reply is forced to start with an emotion tag.
-    private func buildPrompt(system: String, turns: [Message], user: String) -> String {
+    /// Manual ChatML. Fast mode closes the think block empty and prefills "[" so
+    /// the reply is forced to start with an emotion tag. Thinking mode opens a
+    /// real `<think>` block — the model reasons first (never shown), then answers.
+    private func buildPrompt(system: String, turns: [Message], user: String, thinking: Bool) -> String {
         var p = "<|im_start|>system\n\(system)<|im_end|>\n"
         for m in turns {
             p += "<|im_start|>\(m.role)\n\(m.text)<|im_end|>\n"
         }
-        p += "<|im_start|>user\n\(user)<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n["
+        p += "<|im_start|>user\n\(user)<|im_end|>\n<|im_start|>assistant\n"
+        p += thinking ? "<think>\n" : "<think>\n\n</think>\n\n["
         return p
     }
 
@@ -116,6 +118,7 @@ final class Brain: @unchecked Sendable {
         historyUserText: String? = nil,
         commandHint: String? = nil,
         creative: (kind: Persona.CreativeKind, fallback: String)? = nil,
+        thinking: Bool = false,
         onEmotion: @escaping @MainActor (Emotion) -> Void,
         onText: @escaping @MainActor (String) -> Void,
         onDone: @escaping @MainActor (Persona.ParsedReply?) -> Void
@@ -141,35 +144,57 @@ final class Brain: @unchecked Sendable {
         var wrapped = userContent
         if let commandHint { wrapped += "\n" + commandHint }
         wrapped += "\n" + Persona.reminder(lang)
-        let prompt = buildPrompt(system: system, turns: turns, user: wrapped)
-        // for verbatim-repeat retries: same prompt plus an explicit variation nudge
+        // pass 1 honors the thinking preference; retries always drop to fast mode
+        // (reliable format beats a second slow think)
+        let prompt = buildPrompt(system: system, turns: turns, user: wrapped, thinking: thinking)
+        let fastPrompt = thinking
+            ? buildPrompt(system: system, turns: turns, user: wrapped, thinking: false)
+            : prompt
+        // for verbatim-repeat retries: fast prompt plus an explicit variation nudge
         let nudgedPrompt = buildPrompt(
             system: system, turns: turns,
-            user: wrapped + "\n" + Persona.repeatNudge(lang))
+            user: wrapped + "\n" + Persona.repeatNudge(lang), thinking: false)
         let recentReplies = history.suffix(8).filter { $0.role == "assistant" }.map(\.text)
 
         generation = Task.detached(priority: .userInitiated) { [weak self] in
             guard let self else { return }
 
             // One streamed sampling pass; returns the raw accumulated text.
-            func onePass(temperature: Float, prompt: String) async throws -> String {
-                var raw = "["   // mirror the prefilled tag opener
+            // In thinking mode nothing is emitted until `</think>` closes — the UI
+            // keeps its "thinking…" state; only the answer part ever streams out.
+            func onePass(temperature: Float, prompt: String, thinks: Bool) async throws -> String {
+                var raw = thinks ? "" : "["   // fast mode mirrors the prefilled tag opener
+                var answer = ""               // the post-think (visible) portion
+                var thinkDone = !thinks
                 var announcedEmotion = false
                 var emittedLen = 0
                 try await container.perform { context in
                     let tokens = context.tokenizer.encode(text: prompt)
                     let input = LMInput(tokens: MLXArray(tokens))
                     let params = GenerateParameters(
-                        maxTokens: longform ? 280 : 90, temperature: temperature, topP: 0.85,
+                        maxTokens: thinks ? (longform ? 640 : 448) : (longform ? 280 : 90),
+                        temperature: temperature, topP: 0.85,
                         repetitionPenalty: 1.12, repetitionContextSize: 60)
                     let stream = try MLXLMCommon.generate(input: input, parameters: params, context: context)
-                    let rawCap = longform ? 560 : 200
+                    let answerCap = longform ? 560 : 200
                     for await item in stream {
                         if Task.isCancelled { break }
                         if case .chunk(let piece) = item {
                             raw += piece
-                            if raw.count > rawCap { break }  // pet-sized replies only
-                            if !announcedEmotion, let (emo, _) = Persona.earlyTag(from: raw) {
+                            if !thinkDone {
+                                if let r = raw.range(of: "</think>") {
+                                    thinkDone = true
+                                    answer = String(raw[r.upperBound...])
+                                } else if raw.count > 2400 {
+                                    break  // runaway thinker — bail, retry will go fast
+                                } else {
+                                    continue
+                                }
+                            } else {
+                                answer = thinks ? answer + piece : raw
+                            }
+                            if answer.count > answerCap { break }  // pet-sized replies only
+                            if !announcedEmotion, let (emo, _) = Persona.earlyTag(from: answer) {
                                 announcedEmotion = true
                                 if let emo {
                                     await MainActor.run {
@@ -179,9 +204,9 @@ final class Brain: @unchecked Sendable {
                             }
                             // stream the de-tagged running text (flattened + capped so
                             // the bubble can never balloon mid-stream)
-                            if announcedEmotion || raw.count > 6 {
-                                var visible = raw
-                                if let (_, rest) = Persona.earlyTag(from: raw) { visible = rest }
+                            if announcedEmotion || answer.count > 6 {
+                                var visible = answer
+                                if let (_, rest) = Persona.earlyTag(from: answer) { visible = rest }
                                 visible = visible
                                     .replacingOccurrences(of: "[", with: " ")
                                     .replacingOccurrences(of: "]", with: " ")
@@ -202,6 +227,8 @@ final class Brain: @unchecked Sendable {
                         }
                     }
                 }
+                // a think block that never closed produced no usable answer
+                if thinks && !raw.contains("</think>") { return "" }
                 return raw
             }
 
@@ -222,16 +249,17 @@ final class Brain: @unchecked Sendable {
             var parsed: Persona.ParsedReply?
             do {
                 let first = Persona.parse(
-                    try await onePass(temperature: longform ? 0.7 : 0.5, prompt: prompt),
+                    try await onePass(temperature: longform ? 0.7 : 0.5, prompt: prompt, thinks: thinking),
                     lang: lang, longform: longform)
                 let firstIssue = issue(first)
                 if firstIssue == nil || Task.isCancelled {
                     parsed = first
                 } else {
-                    // repeats get an explicit "say it differently" nudge on the retry
-                    let retryPrompt = firstIssue == "verbatim repeat" ? nudgedPrompt : prompt
+                    // repeats get an explicit "say it differently" nudge; all retries
+                    // run in fast (non-thinking) mode for reliability
+                    let retryPrompt = firstIssue == "verbatim repeat" ? nudgedPrompt : fastPrompt
                     let second = Persona.parse(
-                        try await onePass(temperature: 0.9, prompt: retryPrompt),
+                        try await onePass(temperature: 0.9, prompt: retryPrompt, thinks: false),
                         lang: lang, longform: longform)
                     if issue(second) == nil {
                         parsed = second

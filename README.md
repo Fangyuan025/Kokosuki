@@ -64,6 +64,9 @@ actually obeyed — tell her to dance and she dances.
   ("you just petted me!", "I fell off a window two minutes ago"), and answers
   profile questions consistently (age, birthday, zodiac, likes, dislikes)
 - **Trilingual**: UI and dialogue in 简体中文, English, and 日本語
+- **Deep thinking mode** (Settings toggle): the model reasons in a hidden
+  `<think>` block before answering — you only ever see a "thinking…" indicator,
+  then the answer streams in. Slower, smarter; retries auto-degrade to fast mode
 
 ## Getting started
 

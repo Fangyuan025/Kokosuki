@@ -84,6 +84,17 @@ enum SelfTest {
                 fails += 1
             }
         }
+        // think blocks: tags inside reasoning must not leak; unclosed think = empty
+        let thought = Persona.parse("<think>maybe I should be [sad] here…</think>\n\n[happy] 你好呀!", lang: .zh)
+        if thought.emotion != .happy || thought.text.contains("think") || thought.text.contains("sad") {
+            print("think-strip FAIL: \(thought.emotion.map(\.rawValue) ?? "nil") / \(thought.text)")
+            fails += 1
+        }
+        if !Persona.parse("<think>endless pondering", lang: .zh).text.isEmpty {
+            print("think-strip FAIL: unclosed think not treated as empty")
+            fails += 1
+        }
+
         // recombined self-plagiarism must be caught by the repeat gate
         let poem = "欢欣鼓舞展翅飞,\n晨起乘风舞翩跹。\n笑语盈盈伴我游。\n乐在其中任我行。"
         let rehash = "晨起乘风舞翩跹, 笑语盈盈伴我游, 乐在其中任我行。"
@@ -231,10 +242,36 @@ enum SelfTest {
 
         let creativePass = await runCreativeBatch(brain, rounds: max(1, rounds - 1))
         let recallPass = await runRecallBatch(brain)
+        let thinkingPass = await runThinkingSmoke(brain)
 
-        let pass = chatPass && creativePass && recallPass
-        print(pass ? "selftest PASSED" : "selftest FAILED (chat: \(chatPass), creative: \(creativePass), recall: \(recallPass))")
+        let pass = chatPass && creativePass && recallPass && thinkingPass
+        print(pass ? "selftest PASSED" : "selftest FAILED (chat: \(chatPass), creative: \(creativePass), recall: \(recallPass), thinking: \(thinkingPass))")
         exit(pass ? 0 : 1)
+    }
+
+    // MARK: - Thinking-mode smoke test
+
+    private static func runThinkingSmoke(_ brain: Brain) async -> Bool {
+        let cases: [(Lang, String)] = [(.zh, "我该先写作业还是先打游戏?"), (.en, "Should I code or nap first?")]
+        var ok = 0
+        print("\n=== thinking mode (\(cases.count) generations) ===")
+        for (lang, q) in cases {
+            brain.clearHistory()
+            let reply = await withCheckedContinuation { (cont: CheckedContinuation<Persona.ParsedReply?, Never>) in
+                brain.generate(
+                    userContent: q, context: makeContext(lang), recordHistory: false,
+                    thinking: true,
+                    onEmotion: { _ in }, onText: { _ in },
+                    onDone: { cont.resume(returning: $0) })
+            }
+            let text = reply?.text ?? ""
+            let leaked = text.contains("think") || text.contains("<") || text.contains("思考:")
+            let good = !text.isEmpty && !leaked
+            if good { ok += 1 }
+            print("  [\(lang.rawValue)]\(good ? "" : " FAIL!") \(q) → \(text.replacingOccurrences(of: "\n", with: " ⏎ "))")
+        }
+        print("thinking: \(ok)/\(cases.count) clean")
+        return ok == cases.count
     }
 
     // MARK: - Multi-turn context recall

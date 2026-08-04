@@ -71,6 +71,10 @@ struct SettingsView: View {
                 Toggle("", isOn: $settings.windowParkour).labelsHidden()
                     .toggleStyle(.switch).controlSize(.small)
             }
+            settingRow(L10n.t("settings.thinking")) {
+                Toggle("", isOn: $settings.thinkingEnabled).labelsHidden()
+                    .toggleStyle(.switch).controlSize(.small)
+            }
 
             Divider().padding(.vertical, 10)
 

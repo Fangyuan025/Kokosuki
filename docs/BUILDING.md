@@ -81,6 +81,14 @@ Things to keep in mind when swapping:
 - The tokenizer-class workaround `replacementTokenizers["TokenizersBackend"]`
   in `Brain.load()` is needed for models exported with transformers v5; it is
   harmless for older exports.
+- **Thinking mode**: if the model supports `<think>` reasoning blocks (MiniCPM5
+  and most recent ChatML reasoning models do), the "Deep thinking" toggle in
+  Settings opens a real think block before the answer. The reasoning is
+  consumed silently — the stream only surfaces text after `</think>`, tags
+  inside the reasoning never drive the pet's face, a runaway thinker (no
+  `</think>` within budget) is discarded, and quality-gate retries always drop
+  back to fast mode. For models without think support, leave the toggle off
+  (or strip the `<think>` handling in `Brain.buildPrompt`).
 
 ## Development utilities
 

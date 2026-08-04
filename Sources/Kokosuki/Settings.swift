@@ -27,6 +27,9 @@ final class AppSettings: ObservableObject {
     @Published var windowParkour: Bool {
         didSet { UserDefaults.standard.set(windowParkour, forKey: "windowParkour") }
     }
+    @Published var thinkingEnabled: Bool {
+        didSet { UserDefaults.standard.set(thinkingEnabled, forKey: "thinkingEnabled") }
+    }
 
     private init() {
         let d = UserDefaults.standard
@@ -38,6 +41,7 @@ final class AppSettings: ObservableObject {
         chatterFreq = d.object(forKey: "chatterFreq") as? Double ?? 6
         autoSleep = d.object(forKey: "autoSleep") as? Bool ?? true
         windowParkour = d.object(forKey: "windowParkour") as? Bool ?? true
+        thinkingEnabled = d.object(forKey: "thinkingEnabled") as? Bool ?? false
     }
 }
 

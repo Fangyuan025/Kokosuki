@@ -532,6 +532,14 @@ enum Persona {
         var emotion: Emotion? = nil
         var action: PetAction? = nil
 
+        // strip the reasoning block FIRST — tags inside <think> must never drive
+        // the face, and think content must never reach the screen
+        if let r = text.range(of: "</think>") {
+            text = String(text[r.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        } else if text.contains("<think>") {
+            text = ""   // opened but never closed: no usable answer
+        }
+
         // bracketed tags anywhere — first emotion wins, first action wins, all removed
         var cleaned = ""
         var idx = text.startIndex

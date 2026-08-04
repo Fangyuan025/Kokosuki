@@ -72,6 +72,7 @@ enum L10n {
         "settings.freq.high": [.en: "Chatty", .zh: "话痨", .ja: "おしゃべり"],
         "settings.autoSleep": [.en: "Sleeps at night (23:00–7:00)", .zh: "夜间自动睡觉 (23:00–7:00)", .ja: "夜は自動でねる (23:00–7:00)"],
         "settings.parkour": [.en: "Jumps onto app windows", .zh: "会跳上应用窗口", .ja: "ウィンドウの上にジャンプする"],
+        "settings.thinking": [.en: "Deep thinking (slower, smarter replies)", .zh: "深度思考(回复更慢但更聪明)", .ja: "じっくり考える(遅いけど賢い)"],
         "settings.resetStats": [.en: "Reset pet state", .zh: "重置宠物状态", .ja: "ペットの状態をリセット"],
         "settings.about": [.en: "Kokosuki — an offline desktop kitten.\nEverything runs on your Mac; nothing leaves it.", .zh: "可可酥 — 完全离线的桌面小猫。\n一切都在你的 Mac 上运行,不会上传任何数据。", .ja: "ココスキ — 完全オフラインのデスクトップ子猫。\nすべてMac内で動き、データはどこにも送られません。"],
     ]

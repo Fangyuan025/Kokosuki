@@ -729,6 +729,7 @@ final class PetEngine {
             recordHistory: true,
             commandHint: hint,
             creative: creative.map { ($0, L10n.creativeCanned($0, lang: settings.lang)) },
+            thinking: settings.thinkingEnabled,
             onEmotion: { [weak self] emo in
                 guard let self else { return }
                 self.core.setEmotion(emo, hold: 20)
